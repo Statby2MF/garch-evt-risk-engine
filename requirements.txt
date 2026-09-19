@@ -1,0 +1,28 @@
+# ===== Core =====
+numpy>=1.26.0
+pandas>=2.1.0
+scipy>=1.11.0
+
+# ===== Modélisation GARCH =====
+arch>=6.3.0
+
+# ===== Statistiques =====
+statsmodels>=0.14.0
+
+# ===== Données de marché =====
+yfinance>=0.2.33
+
+# ===== Dashboard =====
+streamlit>=1.30.0
+plotly>=5.18.0
+
+# ===== Graphiques =====
+matplotlib>=3.8.0
+
+# ===== Rapport PDF =====
+reportlab>=4.0.0
+
+# ===== Tests =====
+pytest>=7.4.0
+pytest-cov>=4.1.0
+chore: add requirements.txt
