@@ -1,0 +1,39 @@
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# ===== Environnement virtuel =====
+venv/
+env/
+.venv/
+ENV/
+
+# ===== Distribution / build =====
+build/
+dist/
+*.egg-info/
+
+# ===== Données (lourdes, régénérables) =====
+data/*.csv
+data/*.parquet
+reports/*.pdf
+reports/*.png
+
+# ===== IDE =====
+.vscode/
+.idea/
+*.swp
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
+
+# ===== Jupyter =====
+.ipynb_checkpoints/
+
+# ===== Secrets =====
+.env
+.streamlit/secrets.toml
+chore: add .gitignore
