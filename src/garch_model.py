@@ -1,15 +1,20 @@
 """
-Modèle GARCH(1,1) pour la volatilité conditionnelle.
+Modèles GARCH pour la volatilité conditionnelle.
 
-Ce module ajuste un modèle GARCH(1,1) sur les log-rendements d'un actif
-et fournit :
-    - Les paramètres estimés (ω, α, β, μ)
+Ce module supporte DEUX types de modèles :
+    - GARCH(1,1)   : modèle symétrique classique
+    - GJR-GARCH    : version asymétrique (effet de levier)
+
+Il fournit :
+    - Les paramètres estimés (ω, α, β, γ pour GJR, μ)
     - La volatilité conditionnelle σ_t
     - Les résidus standardisés z_t = ε_t / σ_t  → INPUT pour l'EVT
     - Les prévisions de volatilité σ_{T+h}
 
 Références :
     - Bollerslev, T. (1986). Generalized autoregressive conditional heteroskedasticity.
+    - Glosten, L. R., Jagannathan, R., & Runkle, D. E. (1993). On the relation between
+      the expected value and the volatility of the nominal excess return on stocks.
     - McNeil, A. J., & Frey, R. (2000). Estimation of tail-related risk measures...
 
 Auteur : Statby2Mf
@@ -19,10 +24,15 @@ Projet : GARCH-EVT Risk Engine (M2 Statistique, UGB Saint-Louis)
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Literal
 
 import numpy as np
 import pandas as pd
 from arch import arch_model
+
+
+# Types autorisés
+ModelType = Literal["garch", "gjr"]
 
 
 # ---------------------------------------------------------------------------
@@ -32,7 +42,7 @@ from arch import arch_model
 @dataclass
 class GarchFit:
     """
-    Résultat complet d'un ajustement GARCH.
+    Résultat complet d'un ajustement GARCH ou GJR-GARCH.
 
     Attributes
     ----------
@@ -50,9 +60,14 @@ class GarchFit:
     omega : float
         Constante de l'équation de variance.
     alpha : float
-        Coefficient ARCH (réaction aux chocs).
+        Coefficient ARCH (réaction aux chocs, symétrique).
+    gamma : float
+        Coefficient d'asymétrie GJR (0 si model_type='garch').
+        γ > 0 → effet de levier (chocs négatifs amplifient plus la vol).
     beta : float
         Coefficient GARCH (persistance).
+    model_type : str
+        'garch' ou 'gjr'.
     dist : str
         Distribution utilisée pour z_t.
     aic : float
@@ -72,7 +87,9 @@ class GarchFit:
     mu: float
     omega: float
     alpha: float
+    gamma: float
     beta: float
+    model_type: str
     dist: str
     aic: float
     bic: float
@@ -81,35 +98,55 @@ class GarchFit:
 
     @property
     def persistence(self) -> float:
-        """α + β — mesure la persistance de la volatilité. Doit être < 1."""
+        """
+        Persistance de la volatilité.
+
+        - Pour GARCH    : α + β
+        - Pour GJR-GARCH: α + γ/2 + β
+          (γ/2 car les chocs négatifs sont, en moyenne, 1 sur 2)
+        """
+        if self.model_type == "gjr":
+            return self.alpha + self.gamma / 2 + self.beta
         return self.alpha + self.beta
 
     @property
     def long_run_vol(self) -> float:
         """
         Volatilité de long terme (inconditionnelle) :
-            σ_LR = sqrt( ω / (1 - α - β) )
+            σ_LR = sqrt( ω / (1 - persistence) )
         """
         denom = 1 - self.persistence
         if denom <= 0:
             return np.nan
         return float(np.sqrt(self.omega / denom))
 
+    @property
+    def leverage_effect(self) -> bool:
+        """True si GJR-GARCH avec γ significativement positif (> 0)."""
+        return self.model_type == "gjr" and self.gamma > 0
+
     def summary(self) -> str:
         """Résumé texte lisible."""
-        return (
-            f"GARCH(1,1) — {self.dist}\n"
-            f"  μ (mean)         : {self.mu:.4f}\n"
-            f"  ω (omega)        : {self.omega:.6f}\n"
-            f"  α (alpha)        : {self.alpha:.4f}\n"
-            f"  β (beta)         : {self.beta:.4f}\n"
-            f"  α + β            : {self.persistence:.4f}  "
-            f"({'stationnaire' if self.persistence < 1 else 'NON stationnaire !'})\n"
-            f"  σ long terme     : {self.long_run_vol:.4f}%\n"
-            f"  AIC / BIC        : {self.aic:.2f} / {self.bic:.2f}\n"
-            f"  Log-vraisemblance: {self.log_likelihood:.2f}\n"
-            f"  N observations   : {len(self.returns)}"
-        )
+        model_label = "GJR-GARCH(1,1,1)" if self.model_type == "gjr" else "GARCH(1,1)"
+        lines = [
+            f"{model_label} — {self.dist}",
+            f"  μ (mean)         : {self.mu:.4f}",
+            f"  ω (omega)        : {self.omega:.6f}",
+            f"  α (alpha)        : {self.alpha:.4f}",
+        ]
+        if self.model_type == "gjr":
+            lines.append(f"  γ (gamma)        : {self.gamma:.4f}"
+                         f"  {'(effet de levier ✓)' if self.leverage_effect else ''}")
+        lines.extend([
+            f"  β (beta)         : {self.beta:.4f}",
+            f"  Persistance      : {self.persistence:.4f}  "
+            f"({'stationnaire' if self.persistence < 1 else 'NON stationnaire !'})",
+            f"  σ long terme     : {self.long_run_vol:.4f}%",
+            f"  AIC / BIC        : {self.aic:.2f} / {self.bic:.2f}",
+            f"  Log-vraisemblance: {self.log_likelihood:.2f}",
+            f"  N observations   : {len(self.returns)}",
+        ])
+        return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -118,25 +155,31 @@ class GarchFit:
 
 def fit_garch(
     returns: pd.Series,
+    model_type: ModelType = "garch",
     p: int = 1,
+    o: int = 1,
     q: int = 1,
     dist: str = "skewt",
     mean: str = "Constant",
 ) -> GarchFit:
     """
-    Ajuste un modèle GARCH(p, q) sur les log-rendements.
+    Ajuste un modèle GARCH(p,q) ou GJR-GARCH(p,o,q).
 
     Parameters
     ----------
     returns : pd.Series
         Log-rendements en pourcentage (× 100). PAS de NaN.
+    model_type : {'garch', 'gjr'}
+        - 'garch' : GARCH(p,q) symétrique
+        - 'gjr'   : GJR-GARCH(p,o,q) avec terme d'asymétrie
     p : int
         Ordre ARCH (défaut : 1).
+    o : int
+        Ordre du terme asymétrique (GJR uniquement, défaut : 1).
     q : int
         Ordre GARCH (défaut : 1).
     dist : str
-        Distribution de z_t. Options : 'normal', 't', 'skewt', 'ged'.
-        → 'skewt' (skewed Student-t) recommandé pour crypto.
+        Distribution de z_t : 'normal', 't', 'skewt', 'ged'.
     mean : str
         Modèle de moyenne : 'Constant', 'Zero', 'AR', 'ARX'.
 
@@ -148,38 +191,56 @@ def fit_garch(
     Raises
     ------
     ValueError
-        Si les rendements contiennent des NaN ou sont trop courts.
+        Si les rendements contiennent des NaN, sont trop courts,
+        ou si model_type est invalide.
     """
     # --- Validation ---
     if returns.isna().any():
         raise ValueError("Les rendements contiennent des NaN. Nettoie d'abord.")
     if len(returns) < 100:
         raise ValueError(f"Pas assez d'observations ({len(returns)} < 100).")
+    if model_type not in ("garch", "gjr"):
+        raise ValueError(f"model_type doit être 'garch' ou 'gjr', reçu '{model_type}'.")
 
-    # --- Construction & fit ---
-    # rescale=False : nos rendements sont déjà en % → pas besoin de re-scaler
-    am = arch_model(
-        returns,
-        vol="Garch",
-        p=p,
-        q=q,
-        dist=dist,
-        mean=mean,
-        rescale=False,
-    )
+    # --- Construction du modèle ---
+    if model_type == "gjr":
+        am = arch_model(
+            returns,
+            vol="Garch",
+            p=p,
+            o=o,      # ← terme asymétrique GJR
+            q=q,
+            dist=dist,
+            mean=mean,
+            rescale=False,
+        )
+    else:  # garch
+        am = arch_model(
+            returns,
+            vol="Garch",
+            p=p,
+            q=q,
+            dist=dist,
+            mean=mean,
+            rescale=False,
+        )
+
+    # --- Fit ---
     res = am.fit(disp="off", show_warning=False)
 
     # --- Extraction ---
     cond_vol = res.conditional_volatility
     residuals = res.resid
-    resid_std = residuals / cond_vol
+    resid_std = (residuals / cond_vol).dropna()
 
-    # Nettoyage des NaN éventuels dans les résidus standardisés
-    mask = resid_std.notna()
-    resid_std = resid_std[mask]
-
-    # --- Paramètres ---
+    # --- Paramètres (avec .get pour gérer l'absence de gamma) ---
     params = res.params
+
+    # Gestion robuste des noms de paramètres selon le modèle
+    alpha_key = f"alpha[{1}]" if p >= 1 else None
+    beta_key = f"beta[{1}]" if q >= 1 else None
+    gamma_key = f"gamma[{1}]" if model_type == "gjr" and o >= 1 else None
+
     fit = GarchFit(
         returns=returns,
         conditional_vol=cond_vol,
@@ -187,8 +248,10 @@ def fit_garch(
         residuals_std=resid_std,
         mu=float(params.get("mu", 0.0)),
         omega=float(params.get("omega", np.nan)),
-        alpha=float(params.get(f"alpha[{1}]", np.nan)) if p >= 1 else 0.0,
-        beta=float(params.get(f"beta[{1}]", np.nan)) if q >= 1 else 0.0,
+        alpha=float(params.get(alpha_key, 0.0)) if alpha_key else 0.0,
+        gamma=float(params.get(gamma_key, 0.0)) if gamma_key else 0.0,
+        beta=float(params.get(beta_key, 0.0)) if beta_key else 0.0,
+        model_type=model_type,
         dist=dist,
         aic=float(res.aic),
         bic=float(res.bic),
@@ -233,7 +296,7 @@ def ljung_box_test(fit: GarchFit, lags: int = 10) -> dict:
     """
     Test de Ljung-Box sur les résidus standardisés AU CARRÉ.
 
-    But : vérifier que le GARCH a bien capturé toute la structure
+    But : vérifier que le modèle a bien capturé toute la structure
           de dépendance dans la variance.
 
     H0 : pas d'autocorrélation dans les z_t² jusqu'au lag `lags`.
@@ -243,67 +306,81 @@ def ljung_box_test(fit: GarchFit, lags: int = 10) -> dict:
     ----------
     fit : GarchFit
     lags : int
-        Nombre de retards.
 
     Returns
     -------
     dict
-        {'stat': ..., 'pvalue': ..., 'lags': ...}
+        {'stat': ..., 'pvalue': ..., 'lags': ..., 'verdict': str}
     """
     from statsmodels.stats.diagnostic import acorr_ljungbox
 
     squared = (fit.residuals_std ** 2).dropna()
     result = acorr_ljungbox(squared, lags=[lags], return_df=True)
+    stat = float(result["lb_stat"].iloc[0])
+    pval = float(result["lb_pvalue"].iloc[0])
+
     return {
-        "stat": float(result["lb_stat"].iloc[0]),
-        "pvalue": float(result["lb_pvalue"].iloc[0]),
+        "stat": stat,
+        "pvalue": pval,
         "lags": lags,
+        "verdict": "✅ OK" if pval > 0.05 else "⚠️ structure résiduelle",
     }
 
 
-def compare_distributions(
+def compare_models(
     returns: pd.Series,
+    model_types: tuple[str, ...] = ("garch", "gjr"),
     distributions: tuple[str, ...] = ("normal", "t", "skewt", "ged"),
 ) -> pd.DataFrame:
     """
-    Ajuste GARCH(1,1) avec plusieurs distributions et compare AIC/BIC.
+    Benchmark croisé : {GARCH, GJR} × {normal, t, skewt, ged}.
 
-    Utile pour JUSTIFIER ton choix de distribution dans le mémoire.
+    Utile pour JUSTIFIER ton choix de modèle final dans le mémoire.
 
     Parameters
     ----------
     returns : pd.Series
+    model_types : tuple of str
     distributions : tuple of str
 
     Returns
     -------
     pd.DataFrame
-        Tableau avec colonnes : dist, log_likelihood, aic, bic, alpha, beta.
+        Tableau trié par AIC croissant.
+        Colonnes : model, dist, log_likelihood, aic, bic, alpha, gamma, beta,
+                   persistence, leverage.
     """
     rows = []
-    for dist in distributions:
-        try:
-            fit = fit_garch(returns, dist=dist)
-            rows.append({
-                "dist": dist,
-                "log_likelihood": fit.log_likelihood,
-                "aic": fit.aic,
-                "bic": fit.bic,
-                "alpha": fit.alpha,
-                "beta": fit.beta,
-                "persistence": fit.persistence,
-            })
-        except Exception as e:
-            rows.append({
-                "dist": dist,
-                "log_likelihood": np.nan,
-                "aic": np.nan,
-                "bic": np.nan,
-                "alpha": np.nan,
-                "beta": np.nan,
-                "persistence": np.nan,
-                "error": str(e)[:50],
-            })
+    for mt in model_types:
+        for dist in distributions:
+            try:
+                fit = fit_garch(returns, model_type=mt, dist=dist)
+                rows.append({
+                    "model": mt,
+                    "dist": dist,
+                    "log_likelihood": fit.log_likelihood,
+                    "aic": fit.aic,
+                    "bic": fit.bic,
+                    "alpha": fit.alpha,
+                    "gamma": fit.gamma,
+                    "beta": fit.beta,
+                    "persistence": fit.persistence,
+                    "leverage": fit.leverage_effect,
+                })
+            except Exception as e:
+                rows.append({
+                    "model": mt,
+                    "dist": dist,
+                    "log_likelihood": np.nan,
+                    "aic": np.nan,
+                    "bic": np.nan,
+                    "alpha": np.nan,
+                    "gamma": np.nan,
+                    "beta": np.nan,
+                    "persistence": np.nan,
+                    "leverage": False,
+                    "error": str(e)[:60],
+                })
     df = pd.DataFrame(rows).sort_values("aic").reset_index(drop=True)
     return df
 
@@ -315,24 +392,42 @@ def compare_distributions(
 if __name__ == "__main__":
     from src.data_manager import get_returns
 
-    print("🔍 Test du module GARCH\n")
+    print("🔍 Test du module GARCH / GJR-GARCH\n")
     btc = get_returns("BTC-USD")
 
-    print(f"📊 Ajustement GARCH(1,1)-skewt sur BTC ({len(btc)} obs)…\n")
-    fit = fit_garch(btc)
+    # --- GARCH(1,1) ---
+    print("=" * 70)
+    print("📊 [1/2] GARCH(1,1)-skewt sur BTC")
+    print("=" * 70)
+    fit_garch_sym = fit_garch(btc, model_type="garch", dist="skewt")
+    print(fit_garch_sym.summary())
 
-    print(fit.summary())
+    lb = ljung_box_test(fit_garch_sym, lags=10)
+    print(f"\n📉 Ljung-Box (lag=10) : stat={lb['stat']:.2f}, "
+          f"p={lb['pvalue']:.4f} → {lb['verdict']}")
 
-    print("\n📉 Test de Ljung-Box sur résidus² (lag=10) :")
-    lb = ljung_box_test(fit, lags=10)
-    verdict = "✅ OK" if lb["pvalue"] > 0.05 else "⚠️ structure résiduelle"
-    print(f"   Stat = {lb['stat']:.2f}, p-value = {lb['pvalue']:.4f} → {verdict}")
+    # --- GJR-GARCH ---
+    print("\n" + "=" * 70)
+    print("📊 [2/2] GJR-GARCH(1,1,1)-skewt sur BTC")
+    print("=" * 70)
+    fit_gjr = fit_garch(btc, model_type="gjr", dist="skewt")
+    print(fit_gjr.summary())
 
-    print("\n🔮 Prévision σ pour les 5 prochains jours :")
-    sigmas = forecast_volatility(fit, horizon=5)
-    for h, s in enumerate(sigmas, start=1):
-        print(f"   σ_(T+{h}) = {s:.3f}%")
+    lb_gjr = ljung_box_test(fit_gjr, lags=10)
+    print(f"\n📉 Ljung-Box (lag=10) : stat={lb_gjr['stat']:.2f}, "
+          f"p={lb_gjr['pvalue']:.4f} → {lb_gjr['verdict']}")
 
-    print("\n🏆 Comparaison des distributions (AIC) :")
-    comparison = compare_distributions(btc)
+    # --- Comparaison globale ---
+    print("\n" + "=" * 70)
+    print("🏆 BENCHMARK : {GARCH, GJR} × {normal, t, skewt, ged}")
+    print("=" * 70)
+    comparison = compare_models(btc)
     print(comparison.to_string(index=False))
+
+    # --- Meilleur modèle ---
+    best = comparison.iloc[0]
+    print(f"\n🥇 MEILLEUR MODÈLE (AIC) : {best['model'].upper()} — {best['dist']}")
+    print(f"   AIC = {best['aic']:.2f}")
+    if best["model"] == "gjr":
+        print(f"   γ = {best['gamma']:.4f} → "
+              f"{'effet de levier confirmé ✓' if best['gamma'] > 0 else 'pas d effet de levier'}")
