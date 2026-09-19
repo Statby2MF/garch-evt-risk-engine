@@ -109,15 +109,19 @@ class GarchFit:
             return self.alpha + self.gamma / 2 + self.beta
         return self.alpha + self.beta
 
-    @property
+       @property
     def long_run_vol(self) -> float:
         """
         Volatilité de long terme (inconditionnelle) :
             σ_LR = sqrt( ω / (1 - persistence) )
+
+        Renvoie NaN si persistence ≥ 1 - ε (quasi-IGARCH),
+        car la formule n'est plus valide / explose numériquement.
         """
+        TOL = 1e-4   # tolérance : au-delà, on considère persistence ≈ 1
         denom = 1 - self.persistence
-        if denom <= 0:
-            return np.nan
+        if denom < TOL:
+            return np.nan   # modèle non-stationnaire ou quasi-IGARCH
         return float(np.sqrt(self.omega / denom))
 
     @property
@@ -140,7 +144,7 @@ class GarchFit:
         lines.extend([
             f"  β (beta)         : {self.beta:.4f}",
             f"  Persistance      : {self.persistence:.4f}  "
-            f"({'stationnaire' if self.persistence < 1 else 'NON stationnaire !'})",
+            f"({'stationnaire' if self.persistence < 1 - 1e-4 else 'quasi-IGARCH / non stationnaire'})",
             f"  σ long terme     : {self.long_run_vol:.4f}%",
             f"  AIC / BIC        : {self.aic:.2f} / {self.bic:.2f}",
             f"  Log-vraisemblance: {self.log_likelihood:.2f}",
