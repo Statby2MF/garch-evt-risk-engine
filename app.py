@@ -204,7 +204,7 @@ with st.sidebar:
         "- Kupiec (1995)"
     )
     st.markdown("---")
-    st.caption("Statby2Mf — M2 Statistique, UGB Saint-Louis")
+    st.caption("Statby2Mf")
 
 
 # ---------------------------------------------------------------------------
