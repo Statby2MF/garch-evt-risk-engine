@@ -437,7 +437,6 @@ if __name__ == "__main__":
         "Historique": var_hist,
         "Normale": var_norm,
         "GARCH-Normal": var_gn,
-        "GARCH-GED": var_gg,
         "GARCH-EVT": var_evt,
     }
 
@@ -455,7 +454,7 @@ if __name__ == "__main__":
     table = backtest_table(btc, models, p=p)
     print("\n" + table.to_string(index=False))
 
-        print("\n" + "=" * 90)
+    print("\n" + "=" * 90)
     print("🥇 CLASSEMENT (par score composite = somme des p-values)")
     print("=" * 90)
 
