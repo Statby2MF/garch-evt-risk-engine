@@ -232,7 +232,6 @@ def christoffersen_cc(
 # ---------------------------------------------------------------------------
 # Test 4 — Engle-Manganelli (DQ)
 # ---------------------------------------------------------------------------
-
 def engle_manganelli_dq(
     hits: pd.Series,
     var_series: pd.Series,
@@ -242,8 +241,11 @@ def engle_manganelli_dq(
     """
     Test Dynamic Quantile (Engle & Manganelli 2004).
 
-    Régression : (I_t - p) = β0 + Σ βi·I_{t-i} + γ·VaR_t + ε_t
-    Statistique DQ = β' X'X β / (p(1-p)) ~ χ²(k+2)
+    Régression : (I_t - p) = β0 + Σ βi·I_{t-i} + γ·VaR_t* + ε_t
+    où VaR_t* = (VaR_t - mean(VaR)) / std(VaR) — standardisée pour éviter
+    les problèmes de conditionnement numérique.
+
+    Statistique DQ = β' X'X β / (p(1-p)) ~ χ²(k+2) sous H0.
 
     Parameters
     ----------
@@ -266,38 +268,46 @@ def engle_manganelli_dq(
     v = var_series[mask].values
 
     T = len(h)
-    if T < lags + 10:
+    if T < lags + 20:
         return np.nan, np.nan
 
-    # Construit la matrice X : [1, I_{t-1}, ..., I_{t-lags}, VaR_t]
+    # ⚠️ Standardisation de VaR (évite mauvaise condition de X'X)
+    v_mean = v.mean()
+    v_std = v.std()
+    if v_std < 1e-10:
+        v_std = 1.0
+    v_std_arr = (v - v_mean) / v_std
+
+    # Construit X : [1, I_{t-1}, ..., I_{t-lags}, VaR_t*]
     X = np.ones((T, lags + 2))
     for i in range(1, lags + 1):
         X[i:, i] = h[:-i]
-    X[:, -1] = v
+    X[:, -1] = v_std_arr
 
-    # Supprime les `lags` premières lignes (pas de retards dispo)
+    # Supprime les `lags` premières lignes
     X = X[lags:]
     y = h[lags:] - p
 
-    # OLS : β = (X'X)^-1 X'y
+    # OLS via pseudo-inverse (plus robuste que lstsq pour matrice singulière)
     try:
-        beta, _, _, _ = np.linalg.lstsq(X, y, rcond=None)
+        XtX = X.T @ X
+        # Régularisation de Tikhonov pour stabiliser l'inversion
+        eps = 1e-8 * np.trace(XtX) / XtX.shape[0]
+        XtX_reg = XtX + eps * np.eye(XtX.shape[0])
+        XtX_inv = np.linalg.inv(XtX_reg)
+        beta = XtX_inv @ (X.T @ y)
     except np.linalg.LinAlgError:
         return np.nan, np.nan
 
     # Statistique DQ
-    T_eff = len(y)
-    XtX = X.T @ X
-    try:
-        XtX_inv = np.linalg.inv(XtX)
-    except np.linalg.LinAlgError:
-        return np.nan, np.nan
-
     dq = float((beta @ XtX @ beta) / (p * (1 - p)))
     df = lags + 2
+
+    # ⚠️ Cap pour éviter les valeurs aberrantes (test mal conditionné)
+    dq = min(dq, 1e6)
+
     pval = 1 - chi2.cdf(dq, df=df)
     return dq, float(pval)
-
 
 # ---------------------------------------------------------------------------
 # API haut-niveau
@@ -445,14 +455,41 @@ if __name__ == "__main__":
     table = backtest_table(btc, models, p=p)
     print("\n" + table.to_string(index=False))
 
-    print("\n" + "=" * 90)
-    print("🥇 CLASSEMENT (par p-value DQ, plus grand = mieux)")
+        print("\n" + "=" * 90)
+    print("🥇 CLASSEMENT (par score composite = somme des p-values)")
     print("=" * 90)
-    ranking = table.sort_values("dq_p", ascending=False).reset_index(drop=True)
+
+    # Score composite : somme des p-values (plus grand = mieux)
+    table["score"] = (
+        table["kupiec_p"] +
+        table["ind_p"] +
+        table["cc_p"] +
+        table["dq_p"]
+    )
+    ranking = table.sort_values("score", ascending=False).reset_index(drop=True)
+
     medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
+    print()
     for i, row in ranking.iterrows():
         medal = medals[i] if i < len(medals) else "  "
         print(f"  {medal} {row['model']:<15} "
-              f"Kupiec p={row['kupiec_p']:.4f}  "
-              f"CC p={row['cc_p']:.4f}  "
-              f"DQ p={row['dq_p']:.4f}")
+              f"Score={row['score']:.3f}  "
+              f"(Kupiec={row['kupiec_p']:.3f}, "
+              f"IND={row['ind_p']:.3f}, "
+              f"CC={row['cc_p']:.3f}, "
+              f"DQ={row['dq_p']:.3f})")
+
+    # Verdict final : compter les tests passés
+    print("\n" + "=" * 90)
+    print("📊 NOMBRE DE TESTS PASSÉS (p-value > 0.05)")
+    print("=" * 90)
+    print()
+    for _, row in table.iterrows():
+        n_pass = sum([
+            row["kupiec_p"] > 0.05,
+            row["ind_p"] > 0.05,
+            row["cc_p"] > 0.05,
+            row["dq_p"] > 0.05,
+        ])
+        stars = "⭐" * n_pass
+        print(f"  {row['model']:<15} {n_pass}/4 tests passés  {stars}")
