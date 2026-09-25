@@ -853,7 +853,8 @@ def section_var(styles: dict, returns: pd.Series,
 
 
 def section_backtesting(styles: dict, table: pd.DataFrame,
-                        p: float) -> list:
+                        p: float, returns: pd.Series = None,
+                        models: dict = None) -> list:
     """Section backtesting."""
     story = [Paragraph("6. Backtesting réglementaire Bâle III", styles["h1"])]
 
@@ -904,15 +905,15 @@ def section_backtesting(styles: dict, table: pd.DataFrame,
         styles["body"],
     ))
 
-    story.append(Paragraph("6.4 Violations détaillées", styles["h2"]))
+     story.append(Paragraph("6.4 Violations détaillées", styles["h2"]))
 
-    fig = make_violations_figure(
-        # On utilise la fonction définie dans report_generator
-        None,  # placeholder, corrigé plus bas
-        {},
-    )
-    # Fallback : on saute la figure violations si problème
-    plt.close(fig)
+    if returns is not None and models is not None:
+        fig = make_violations_figure(returns, models)
+        story.append(fig_to_image(fig, width_cm=16))
+        story.append(Paragraph(
+            "Figure 6 — Violations de VaR par modèle (points rouges)",
+            styles["caption"],
+        ))
 
     story.append(Paragraph(
         "Les violations (points rouges) sont réparties de manière "
@@ -920,6 +921,7 @@ def section_backtesting(styles: dict, table: pd.DataFrame,
         "de Christoffersen (IND). Aucun clustering de violations n'a "
         "été détecté.",
         styles["body"],
+    ))
     ))
 
     story.append(PageBreak())
