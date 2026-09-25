@@ -69,12 +69,15 @@ class DynamicRiskResult:
             "sigma": self.sigma,
         })
 
-    def violations(self) -> pd.Series:
+        def violations(self) -> pd.Series:
         """
-        Série booléenne : True si le rendement a dépassé la VaR
-        (i.e., une violation s'est produite).
+        Série binaire : 1 si le rendement a dépassé la VaR, 0 sinon.
+        Les dates où la VaR n'est pas définie (NaN) sont marquées NaN.
         """
-        return (self.returns < self.var).astype(int).rename("violation")
+        mask = self.var.notna()
+        viol = pd.Series(np.nan, index=self.returns.index, name="violation")
+        viol[mask] = (self.returns[mask] < self.var[mask]).astype(int)
+        return viol
 
 
 # ---------------------------------------------------------------------------
@@ -293,19 +296,39 @@ if __name__ == "__main__":
     print(f"VaR 99% (max)        : {df['var'].max():.3f}%  ← meilleur jour")
     print(f"ES 99% (moyenne)     : {df['es'].mean():.3f}%")
 
-    # --- Taux de violations (out-of-sample) ---
-    viol = result.violations().dropna()
+        # --- Taux de violations (out-of-sample uniquement) ---
+    viol = result.violations().dropna()  # ⚠️ exclut maintenant les NaN
     n_viol = int(viol.sum())
     n_obs = len(viol)
     rate = n_viol / n_obs
     expected = 1 - 0.99
 
-    print(f"\n📉 Taux de violations :")
+    print(f"\n📉 Taux de violations (out-of-sample) :")
     print(f"   Violations         : {n_viol} / {n_obs}")
     print(f"   Taux observé       : {rate:.4%}")
     print(f"   Taux attendu       : {expected:.4%}")
-    print(f"   Écart              : {(rate - expected):.4%}")
+    print(f"   Écart              : {(rate - expected):+.4%}")
 
+    # Verdict rapide
+    if abs(rate - expected) < 0.005:
+        verdict = "✅ Modèle bien calibré"
+    elif rate < expected:
+        verdict = "🟡 Modèle trop prudent (sur-couvre)"
+    else:
+        verdict = "🔴 Modèle sous-estime le risque"
+    print(f"   Verdict            : {verdict}")
+    # --- Analyse par sous-période (détection de régime) ---
+    print(f"\n📅 Violations par année :")
+    df_full = result.to_dataframe().dropna()
+    viol_aligned = result.violations().dropna()
+    for year in sorted(set(viol_aligned.index.year)):
+        mask = viol_aligned.index.year == year
+        n_v = int(viol_aligned[mask].sum())
+        n_o = int(mask.sum())
+        expected_year = n_o * 0.01
+        print(f"   {year} : {n_v:2d} / {n_o:4d} violations "
+              f"(attendu ≈ {expected_year:.1f})")
+    
     # --- Écart avec VaR gaussienne ---
     from scipy.stats import norm
     var_gauss_mean = df["sigma"].mean() * (-norm.ppf(0.99))
