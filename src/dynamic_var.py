@@ -69,15 +69,15 @@ class DynamicRiskResult:
             "sigma": self.sigma,
         })
 
-    def violations(self) -> pd.Series:
-        """
-        Série binaire : 1 si le rendement a dépassé la VaR, 0 sinon.
-        Les dates où la VaR n'est pas définie (NaN) sont marquées NaN.
-        """
-        mask = self.var.notna()
-        viol = pd.Series(np.nan, index=self.returns.index, name="violation")
-        viol[mask] = (self.returns[mask] < self.var[mask]).astype(int)
-        return viol
+def violations(self) -> pd.Series:
+    """
+    Série binaire : 1 si le rendement a dépassé la VaR, 0 sinon.
+    Les dates où la VaR n'est pas définie (NaN) sont marquées NaN.
+    """
+    mask = self.var.notna()
+    viol = pd.Series(np.nan, index=self.returns.index, name="violation")
+    viol[mask] = (self.returns[mask] < self.var[mask]).astype(int)
+    return viol
 
 
 # ---------------------------------------------------------------------------
