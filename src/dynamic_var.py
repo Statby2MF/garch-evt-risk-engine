@@ -69,7 +69,7 @@ class DynamicRiskResult:
             "sigma": self.sigma,
         })
 
-        def violations(self) -> pd.Series:
+    def violations(self) -> pd.Series:
         """
         Série binaire : 1 si le rendement a dépassé la VaR, 0 sinon.
         Les dates où la VaR n'est pas définie (NaN) sont marquées NaN.
