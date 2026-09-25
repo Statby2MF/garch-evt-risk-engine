@@ -203,7 +203,27 @@ def get_quality_report() -> DataQualityReport:
     _, report = clean_prices(prices)
     return report
 
+def get_prices(ticker: str | None = None) -> pd.DataFrame | pd.Series:
+    """
+    Renvoie les prix nettoyés.
 
+    Parameters
+    ----------
+    ticker : str or None
+        Si fourni, renvoie une Series pour cet actif.
+        Sinon, renvoie un DataFrame avec tous les actifs.
+
+    Returns
+    -------
+    pd.DataFrame or pd.Series
+    """
+    prices = load_prices()
+    prices, _ = clean_prices(prices)
+    if ticker is not None:
+        if ticker not in prices.columns:
+            raise ValueError(f"Ticker '{ticker}' introuvable.")
+        return prices[ticker]
+    return prices
 # ---------------------------------------------------------------------------
 # Test rapide (uniquement si lancé directement)
 # ---------------------------------------------------------------------------
