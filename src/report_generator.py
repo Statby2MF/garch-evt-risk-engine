@@ -922,7 +922,7 @@ def section_backtesting(styles: dict, table: pd.DataFrame,
         "été détecté.",
         styles["body"],
     ))
-    ))
+    
 
     story.append(PageBreak())
     return story
