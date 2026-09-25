@@ -459,16 +459,4 @@ if __name__ == "__main__":
     print("   - Scoring Bâle III : Kupiec (POF) + Christoffersen (IND + CC)")
     print("   - Le test DQ (Engle-Manganelli) est rapporté à titre indicatif")
     print("     mais exclu du scoring (instabilité numérique documentée).")
-    print("-" * 90)
-    print("📊 NOMBRE DE TESTS PASSÉS (p-value > 0.05)")
-    print("=" * 90)
-    print()
-    for _, row in table.iterrows():
-        n_pass = sum([
-            row["kupiec_p"] > 0.05,
-            row["ind_p"] > 0.05,
-            row["cc_p"] > 0.05,
-            row["dq_p"] > 0.05,
-        ])
-        stars = "⭐" * n_pass
-        print(f"  {row['model']:<15} {n_pass}/4 tests passés  {stars}")
+    
