@@ -419,7 +419,7 @@ if __name__ == "__main__":
     table = backtest_table(btc, models, p=p)
     print("\n" + table.to_string(index=False))
 
-        print("\n" + "=" * 90)
+    print("\n" + "=" * 90)
     print("🥇 CLASSEMENT (score Bâle III : Kupiec + Christoffersen CC)")
     print("=" * 90)
 
