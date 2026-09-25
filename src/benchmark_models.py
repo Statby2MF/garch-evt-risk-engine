@@ -204,13 +204,16 @@ def var_garch_ged(
                 current_sigma = float(fit.conditional_vol.iloc[-1])
                 current_mu = float(fit.mu)
 
-                # Paramètre de forme de la GED
+                               # Paramètre de forme de la GED.
+                # ⚠️ ATTENTION : arch utilise la convention où `eta` est
+                # l'inverse du paramètre shape de scipy.stats.gennorm.
+                #   arch eta = 1.5 → queue ÉPAISSE
+                #   scipy shape = 2/eta = 1.33 → queue ÉPAISSE (cohérent)
                 params = fit.model_result.params
-                shape_raw = float(params.get("eta", 2.0))
+                eta_raw = float(params.get("eta", 2.0))
+                shape_raw = 2.0 / eta_raw   # ← conversion !
 
-                # ⚠️ Contrainte : shape ∈ [0.5, 4]
-                #   - shape < 0.5 → queue trop épaisse (Cauchy-like)
-                #   - shape > 4 → queue trop fine (redondant avec normale)
+                # Contrainte : shape ∈ [0.5, 4]
                 current_shape = max(0.5, min(shape_raw, 4.0))
 
                 if verbose:
