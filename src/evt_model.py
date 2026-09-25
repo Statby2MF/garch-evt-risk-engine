@@ -219,7 +219,10 @@ def gpd_quantile(evt: EVTFit, p: float) -> float:
         q_p = u + (β/ξ) · [ ((n/N_u)·(1-p))^(-ξ) - 1 ]
 
     Cas limite ξ → 0 :
-        q_p = u + β · ln((N_u/n) / (1-p))
+        q_p = u + β · ln((n/N_u) / (1-p))
+
+    ⚠️ Convention retenue : n/N_u (PAS N_u/n) — vérifiée par le fait que
+    VaR_99% > VaR_95% quand ξ > 0.
 
     Parameters
     ----------
@@ -240,11 +243,13 @@ def gpd_quantile(evt: EVTFit, p: float) -> float:
     xi, beta, u = evt.xi, evt.beta, evt.threshold
     n, Nu = evt.n_total, evt.n_exceed
 
+    ratio = (n / Nu) * (1 - p)   # ← n/N_u (inverse !)
+
     if abs(xi) < 1e-6:
         # Cas Gumbel : limite ξ → 0
-        return u + beta * np.log((Nu / n) / (1 - p))
+        return u + beta * np.log(1 / ratio)
 
-    return u + (beta / xi) * (((Nu / n) / (1 - p)) ** (-xi) - 1)
+    return u + (beta / xi) * (ratio ** (-xi) - 1)
 
 
 def gpd_es(evt: EVTFit, p: float) -> float:
