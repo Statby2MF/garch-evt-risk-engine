@@ -14,9 +14,9 @@ Usage :
 Auteur : Statby2Mf
 Projet : GARCH-EVT Risk Engine (M2 Statistique, UGB Saint-Louis)
 """
-from src.report_generator import generate_report
-from __future__ import annotations
 
+from __future__ import annotations
+from src.report_generator import generate_report
 from pathlib import Path
 
 import numpy as np
