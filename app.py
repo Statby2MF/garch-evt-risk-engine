@@ -14,7 +14,7 @@ Usage :
 Auteur : Statby2Mf
 Projet : GARCH-EVT Risk Engine (M2 Statistique, UGB Saint-Louis)
 """
-
+from src.report_generator import generate_report
 from __future__ import annotations
 
 from pathlib import Path
@@ -139,6 +139,20 @@ def compute_backtest_table(returns: pd.Series, models: dict, p: float):
     return table
 
 
+@st.cache_data(show_spinner=False, ttl=3600)
+def cached_report_path(ticker: str, p: float, window: int, refit_every: int) -> str:
+    """
+    Génère le PDF et met en cache le chemin du fichier.
+    Le cache évite de regénérer le même rapport à chaque clic.
+    """
+    path = generate_report(
+        ticker=ticker,
+        p=p,
+        window=window,
+        refit_every=refit_every,
+        verbose=False,   # silencieux dans Streamlit
+    )
+    return str(path)
 # ---------------------------------------------------------------------------
 # Header
 # ---------------------------------------------------------------------------
@@ -204,6 +218,31 @@ with st.sidebar:
         "- Kupiec (1995)"
     )
     st.markdown("---")
+    st.markdown("### 📄 Rapport PDF")
+
+    if st.button("📄 Générer le rapport PDF", use_container_width=True):
+        with st.spinner(f"⏳ Génération du rapport pour {ticker}… "
+                        f"(30-60 sec)"):
+            try:
+                pdf_path = cached_report_path(ticker, p, window, refit_every)
+                st.session_state["pdf_path"] = pdf_path
+                st.success("✅ Rapport prêt !")
+            except Exception as e:
+                st.error(f"❌ Erreur : {e}")
+
+    # Bouton de téléchargement si le PDF existe
+    if "pdf_path" in st.session_state:
+        pdf_path_obj = Path(st.session_state["pdf_path"])
+        if pdf_path_obj.exists():
+            with open(pdf_path_obj, "rb") as f:
+                st.download_button(
+                    label="⬇️ Télécharger le rapport",
+                    data=f.read(),
+                    file_name=pdf_path_obj.name,
+                    mime="application/pdf",
+                    use_container_width=True,
+                )
+            st.caption(f"📁 {pdf_path_obj.name}")
     st.caption("Statby2Mf")
 
 
