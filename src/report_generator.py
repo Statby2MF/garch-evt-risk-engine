@@ -905,7 +905,7 @@ def section_backtesting(styles: dict, table: pd.DataFrame,
         styles["body"],
     ))
 
-     story.append(Paragraph("6.4 Violations détaillées", styles["h2"]))
+    story.append(Paragraph("6.4 Violations détaillées", styles["h2"]))
 
     if returns is not None and models is not None:
         fig = make_violations_figure(returns, models)
